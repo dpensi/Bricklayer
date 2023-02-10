@@ -9,7 +9,9 @@ export(bool) var RandomizeSeed = false
 onready var city_map = get_node("CityMap")
 onready var city = get_node("City")
 onready var cell_size = city_map.cell_size
-onready var rnd = RandomNumberGenerator.new()
+
+var rnd = RandomNumberGenerator.new()
+var road_plans = []
 
 enum RectTypes {
   RESIDENTIAL	= 0,
@@ -35,7 +37,9 @@ func _ready():
 		get_tree().quit()
 		
 	generate_map()
-	generate_city()
+	generate_city_terrain()
+	plan_roads()
+	build_roads()
 
 func checkInput():
 	var valid_input = true
@@ -91,22 +95,12 @@ func put_rect(rect, floor_type):
 		for y in range(rect.position.y, rect.end.y):
 			city_map.set_cell(x, y, floor_type)
 
-func generate_city():
+func generate_city_terrain():
 	# create scaled terrain
 	for x in range(MapSize.x):
 		for y in range(MapSize.y):
 			var tile_type = get_tile_type(city_map, x, y)
-			create_block(x, y, tile_type)
-	
-	#create roads
-#	for x in range(MapSize.x * MapScale):
-#		for y in range(MapSize.y * MapScale):
-#			var tile_type = get_tile_type(city, x, y)
-#			var nsew = get_neighbours_type(city, x, y)
-#			for neighbour_type in nsew:
-#				if tile_type != neighbour_type:
-#					city.set_cell(\
-#						x, y, RectTypes.ROAD)
+			create_block(Vector2(x, y), tile_type)
 			
 func get_tile_type(grid, x, y):
 	var tile_id = grid.get_cell(x, y)
@@ -115,35 +109,116 @@ func get_tile_type(grid, x, y):
 	return tile_type
 
 func create_block(
-	map_x, 
-	map_y, 
+	up_left_corner, 
 	tile_type):
 		
-	var city_x = map_x * MapScale
-	var city_y = map_y * MapScale
+	var city_x = up_left_corner.x * MapScale
+	var city_y = up_left_corner.y * MapScale
 	for x in range(city_x, city_x + MapScale):
 		for y in range(city_y, city_y + MapScale):
 			city.set_cell(x, y, tile_type)
-
-func get_neighbours_type(grid, x, y):
-	var nsew = []
-	nsew.append(int(\
-		grid.tile_set.tile_get_name(\
-			grid.get_cell(x, y-1)))) #north
-	nsew.append( int(\
-		grid.tile_set.tile_get_name(\
-			grid.get_cell(x, y+1)))) #south
-	nsew.append(int(\
-		grid.tile_set.tile_get_name(\
-			grid.get_cell(x-1, y)))) #east
-	nsew.append(int(\
-		grid.tile_set.tile_get_name(\
-			grid.get_cell(x+1, y)))) #west
-	return nsew
+			
+func plan_roads():
 	
+	for x in range(MapSize.x * MapScale):
+		for y in range(MapSize.y * MapScale):
+			var tile_type = get_tile_type(city, x, y)
+			road_plans.append_array(get_road_plans(
+				Vector2(x,y), tile_type
+			))
+			
+func build_roads():
+	for plan in road_plans:
+		city.set_cell(
+			plan.point_a.x, plan.point_a.y, RectTypes.ROAD)
+		city.set_cell(
+			plan.point_b.x, plan.point_b.y, RectTypes.ROAD)
+		
+# returns an array of RoadBlueprint calculated
+# by checking the neighbours of `position`,
+# a RoadBlueprint is added to the returned array
+# if `position` has a neighbour of different type
+func get_road_plans(position, tile_type):
+	var neighbours = get_neighbours_type(city, position )
+	var plans = []
+	
+	if neighbours.north != null \
+		and neighbours.north != tile_type:
+		
+		var road_bp = RoadBlueprint.new()
+		road_bp.point_a = position
+		road_bp.point_b = Vector2(position.x, position.y - 1)
+		road_bp.orientation = RoadOrientation.HORIZONTAL
+		plans.append(road_bp)
+		
+	if neighbours.south != null \
+		and neighbours.south != tile_type:
+		
+		var road_bp = RoadBlueprint.new()
+		road_bp.point_a = position
+		road_bp.point_b = Vector2(position.x, position.y + 1)
+		road_bp.orientation = RoadOrientation.HORIZONTAL
+		plans.append(road_bp)
+		
+	if neighbours.east != null \
+		and neighbours.east != tile_type:
+		
+		var road_bp = RoadBlueprint.new()
+		road_bp.point_a = position
+		road_bp.point_b = Vector2(position.x + 1, position.y)
+		road_bp.orientation = RoadOrientation.VERTICAL
+		plans.append(road_bp)
+		
+	if neighbours.west != null \
+		and neighbours.west != tile_type:
+		var road_bp = RoadBlueprint.new()
+		road_bp.point_a = position
+		road_bp.point_b = Vector2(position.x - 1, position.y)
+		road_bp.orientation = RoadOrientation.HORIZONTAL
+		plans.append(road_bp)
+		
+	return plans
+	
+# return a NeighboursType object filled with the
+# neighbours of the cell at `position`
+func get_neighbours_type(grid, position):
+	var x = position.x
+	var y = position.y
+	var neighbours = NeighboursTypes.new()
+	
+	if grid.get_cell(x, y-1) != grid.INVALID_CELL:
+		neighbours.north = int(\
+			grid.tile_set.tile_get_name(\
+				grid.get_cell(x, y-1))) 
+	if grid.get_cell(x, y+1) != grid.INVALID_CELL:
+		neighbours.south = int(\
+			grid.tile_set.tile_get_name(\
+				grid.get_cell(x, y+1)))
+	if grid.get_cell(x-1, y) != grid.INVALID_CELL:
+		neighbours.west = int(\
+			grid.tile_set.tile_get_name(\
+				grid.get_cell(x-1, y)))
+	if grid.get_cell(x+1, y) != grid.INVALID_CELL:
+		neighbours.east = int(\
+			grid.tile_set.tile_get_name(\
+				grid.get_cell(x+1, y)))
+	return neighbours
+
+		
 func from_map_to_city(coordinate):
 	return coordinate * MapScale
 func from_city_to_map(coordinate):
 	return Vector2(\
 		ceil(coordinate.x / MapScale),
 		ceil(coordinate.y / MapScale))
+
+class NeighboursTypes:
+	var north
+	var south
+	var east
+	var west
+	
+class RoadBlueprint:
+	var point_a
+	var point_b
+	var orientation
